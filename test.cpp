@@ -57,3 +57,29 @@ TEST_F(SmokingTableTest, OnlyOneSmokerPerRound) {
     smoker3.join();
 }
 
+// Тест 2: Корректное завершение работы
+TEST_F(SmokingTableTest, ProperShutdown) {
+    std::atomic<int> completed_smokers{0};
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (table->startSmoking(ingredient)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            table->finishSmoking();
+        }
+        completed_smokers++;
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_EQ(completed_smokers.load(), 3);
+}
+
