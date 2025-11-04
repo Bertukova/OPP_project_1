@@ -2,12 +2,14 @@
 #include <chrono>
 #include <random>
 #include <thread>
+#include <locale.h>
 
 #include "smoking_types.hpp"
 #include "smoking_io.hpp"
 #include "smoking_table.hpp"
 
 int main() {
+  setlocale(LC_ALL, "Russian");
   SmokingTable table; 
   std::mutex io_mutex; // мьютекс для логов
   constexpr int kTotalRounds = 12; // кол-во раундов, которые проведет посредник
