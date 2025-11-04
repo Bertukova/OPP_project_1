@@ -303,7 +303,43 @@ TEST_F(SmokingTableTest, StressTest) {
     EXPECT_GE(operations.load(), target_operations);
 }
 
-
+// Тест 9: MixedComponentCombinations
+TEST_F(SmokingTableTest, MixedComponentCombinations) {
+    std::array<std::atomic<int>, 3> correct_matches{0, 0, 0};
+    std::atomic<bool> testing{true};
+    
+    auto verifying_smoker = [&](Ingredient ingredient, int index) {
+        while (testing) {
+            if (table->startSmoking(ingredient)) {
+                correct_matches[index]++;
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(verifying_smoker, Ingredient::kTobacco, 0);
+    std::thread smoker2(verifying_smoker, Ingredient::kPaper, 1);
+    std::thread smoker3(verifying_smoker, Ingredient::kMatches, 2);
+    
+    // Тестируем все возможные комбинации
+    table->place(Ingredient::kPaper, Ingredient::kMatches);   // Должен взять курильщик с табаком
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kMatches); // Должен взять курильщик с бумагой
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kPaper);   // Должен взять курильщик со спичками
+    table->waitForRoundEnd();
+    
+    testing = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    // Каждый курильщик должен был сработать ровно 1 раз
+    EXPECT_EQ(correct_matches[0].load(), 1);
+    EXPECT_EQ(correct_matches[1].load(), 1);
+    EXPECT_EQ(correct_matches[2].load(), 1);
+}
 
 
 
