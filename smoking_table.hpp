@@ -7,7 +7,6 @@
 
 #include "smoking_types.hpp"
 
-namespace {
 
 // 4 потока круглого стола, или не круглого
 // стол, за которым сидят 3 курилбщика и 1 посредник
@@ -88,4 +87,4 @@ class SmokingTable {
   bool finished_{false}; // пора сворачиваться
 };
 
-} // namespace
+
