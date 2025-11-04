@@ -153,6 +153,60 @@ TEST_F(SmokingTableTest, AllSmokersParticipate) {
     EXPECT_GT(smoker_counts[1].load(), 0);
     EXPECT_GT(smoker_counts[2].load(), 0);
 }
+// Тест 5: Отсутствие гонки данных
+TEST_F(SmokingTableTest, NoDataRace) {
+    std::atomic<int> total_smokes{0};
+    std::atomic<bool> running{true};
+    const int test_duration_ms = 200;
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                total_smokes++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    auto agent_task = [&]() {
+        auto start = std::chrono::steady_clock::now();
+        while (running) {
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() > test_duration_ms) {
+                break;
+            }
+            
+            static std::array<std::array<Ingredient, 2>, 3> combinations = {
+                std::array<Ingredient, 2>{Ingredient::kPaper, Ingredient::kMatches},
+                std::array<Ingredient, 2>{Ingredient::kTobacco, Ingredient::kMatches},
+                std::array<Ingredient, 2>{Ingredient::kTobacco, Ingredient::kPaper}
+            };
+            
+            auto components = combinations[rand() % 3];
+            table->place(components[0], components[1]);
+            table->waitForRoundEnd();
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    std::thread agent(agent_task);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(test_duration_ms + 10));
+    running = false;
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    agent.join();
+    
+    EXPECT_GT(total_smokes.load(), 0);
+}
+
+
 
 
 
