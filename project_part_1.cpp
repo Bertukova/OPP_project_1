@@ -223,6 +223,41 @@ int main() {
     PrintMessage(io_mutex, SmokerLabel(ingredient) + " завершает работу.");
   };
 
+  // поток посредника
+  auto agent_task = [&](int total_rounds) {
+    std::mt19937 rng(std::random_device{}()); // генератор псевдослучайных чисел
+    std::uniform_int_distribution<int> dist(
+        0, static_cast<int>(kAllSmokers.size()) - 1); // равномерное распределение в диапазоне от [0; 2]
+
+    for (int round = 1; round <= total_rounds; ++round) {
+      const Ingredient smoker_with_supply =
+          kAllSmokers[static_cast<std::size_t>(dist(rng))]; // случайно выбираем какому курильщику будет подходить след. пара компонентов
+      const auto components = ComponentsFor(smoker_with_supply); // та самая пара компонентов
+      
+      {
+        std::string message =
+            "Посредник выкладывает " +
+            std::string{IngredientToString(components[0])} + " и " +
+            std::string{IngredientToString(components[1])} + " для " +
+            SmokerLabel(smoker_with_supply) +
+            ". Раунд #" + std::to_string(round) + ".";
+        PrintMessage(io_mutex, message);
+      }
+
+      table.place(components[0], components[1]);
+
+      table.waitForRoundEnd();
+
+      {
+        std::string message = "Раунд #" + std::to_string(round) +
+                               " завершен.";
+        PrintMessage(io_mutex, message);
+      }
+    }
+
+    table.finish();
+    PrintMessage(io_mutex, "Посредник завершает работу.");
+  };
 
   return 0;
 }
