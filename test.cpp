@@ -234,6 +234,27 @@ TEST_F(SmokingTableTest, FastSequentialRounds) {
     EXPECT_EQ(round_count.load(), 10);
 }
 
+// Тест 7: Проверка waitForRoundEnd
+TEST_F(SmokingTableTest, WaitForRoundEndWorks) {
+    std::atomic<bool> round_completed{false};
+    
+    std::thread smoker([&]() {
+        if (table->startSmoking(Ingredient::kTobacco)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            table->finishSmoking();
+            round_completed = true;
+        }
+    });
+    
+    table->place(Ingredient::kPaper, Ingredient::kMatches);
+    table->waitForRoundEnd();
+    
+    EXPECT_TRUE(round_completed.load());
+    
+    smoker.join();
+    table->finish();
+}
+
 
 
 
