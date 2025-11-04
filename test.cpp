@@ -1,0 +1,351 @@
+#include <gtest/gtest.h>
+#include <thread>
+#include <chrono>
+#include <atomic>
+#include <vector>
+
+#include "smoking_types.hpp"
+#include "smoking_table.hpp"
+#include "smoking_io.hpp"
+
+class SmokingTableTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        table = std::make_unique<SmokingTable>();
+    }
+
+    void TearDown() override {
+        if (table) {
+            table->finish();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::unique_ptr<SmokingTable> table;
+    std::mutex test_mutex;
+};
+
+// Тест 1: Только один курильщик за раунд
+TEST_F(SmokingTableTest, OnlyOneSmokerPerRound) {
+    std::atomic<int> active_smokers{0};
+    std::atomic<bool> test_running{true};
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        if (table->startSmoking(ingredient)) {
+            active_smokers++;
+            while (test_running) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            table->finishSmoking();
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    table->place(Ingredient::kPaper, Ingredient::kMatches);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    EXPECT_EQ(active_smokers.load(), 1);
+    
+    test_running = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+}
+
+// Тест 2: Корректное завершение работы
+TEST_F(SmokingTableTest, ProperShutdown) {
+    std::atomic<int> completed_smokers{0};
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (table->startSmoking(ingredient)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            table->finishSmoking();
+        }
+        completed_smokers++;
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_EQ(completed_smokers.load(), 3);
+}
+// Тест 3: Многократные раунды
+TEST_F(SmokingTableTest, MultipleRounds) {
+    std::atomic<int> rounds_completed{0};
+    std::atomic<bool> running{true};
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                rounds_completed++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    
+    // Проводим 5 раундов
+    for (int i = 0; i < 5; i++) {
+        table->place(Ingredient::kPaper, Ingredient::kMatches);
+        table->waitForRoundEnd();
+    }
+    
+    running = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_GE(rounds_completed.load(), 5);
+}
+// Тест 4: Все три курильщика работают
+TEST_F(SmokingTableTest, AllSmokersParticipate) {
+    std::array<std::atomic<int>, 3> smoker_counts{0, 0, 0};
+    std::atomic<bool> running{true};
+    
+    auto smoker_task = [&](Ingredient ingredient, int index) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                smoker_counts[index]++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco, 0);
+    std::thread smoker2(smoker_task, Ingredient::kPaper, 1);
+    std::thread smoker3(smoker_task, Ingredient::kMatches, 2);
+    
+    // Разные комбинации компонентов
+    table->place(Ingredient::kPaper, Ingredient::kMatches);  // Для табака
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kMatches); // Для бумаги
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kPaper);   // Для спичек
+    table->waitForRoundEnd();
+    
+    running = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    // Все курильщики должны были покурить
+    EXPECT_GT(smoker_counts[0].load(), 0);
+    EXPECT_GT(smoker_counts[1].load(), 0);
+    EXPECT_GT(smoker_counts[2].load(), 0);
+}
+// Тест 5: Отсутствие гонки данных
+TEST_F(SmokingTableTest, NoDataRace) {
+    std::atomic<int> total_smokes{0};
+    std::atomic<bool> running{true};
+    const int test_duration_ms = 200;
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                total_smokes++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    auto agent_task = [&]() {
+        auto start = std::chrono::steady_clock::now();
+        while (running) {
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() > test_duration_ms) {
+                break;
+            }
+            
+            static std::array<std::array<Ingredient, 2>, 3> combinations = {
+                std::array<Ingredient, 2>{Ingredient::kPaper, Ingredient::kMatches},
+                std::array<Ingredient, 2>{Ingredient::kTobacco, Ingredient::kMatches},
+                std::array<Ingredient, 2>{Ingredient::kTobacco, Ingredient::kPaper}
+            };
+            
+            auto components = combinations[rand() % 3];
+            table->place(components[0], components[1]);
+            table->waitForRoundEnd();
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    std::thread agent(agent_task);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(test_duration_ms + 10));
+    running = false;
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    agent.join();
+    
+    EXPECT_GT(total_smokes.load(), 0);
+}
+// Тест 6: Быстрые последовательные раунды
+TEST_F(SmokingTableTest, FastSequentialRounds) {
+    std::atomic<int> round_count{0};
+    
+    auto fast_smoker_task = [&](Ingredient ingredient) {
+        while (table->startSmoking(ingredient)) {
+            round_count++;
+            table->finishSmoking();
+        }
+    };
+    
+    std::thread smoker1(fast_smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(fast_smoker_task, Ingredient::kPaper);
+    std::thread smoker3(fast_smoker_task, Ingredient::kMatches);
+    
+    // 10 быстрых раундов
+    for (int i = 0; i < 10; i++) {
+        table->place(Ingredient::kPaper, Ingredient::kMatches);
+        table->waitForRoundEnd();
+    }
+    
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_EQ(round_count.load(), 10);
+}
+
+// Тест 7: Проверка waitForRoundEnd
+TEST_F(SmokingTableTest, WaitForRoundEndWorks) {
+    std::atomic<bool> round_completed{false};
+    
+    std::thread smoker([&]() {
+        if (table->startSmoking(Ingredient::kTobacco)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            table->finishSmoking();
+            round_completed = true;
+        }
+    });
+    
+    table->place(Ingredient::kPaper, Ingredient::kMatches);
+    table->waitForRoundEnd();
+    
+    EXPECT_TRUE(round_completed.load());
+    
+    smoker.join();
+    table->finish();
+}
+
+// Тест 8: StressTest
+TEST_F(SmokingTableTest, StressTest) {
+    std::atomic<int> operations{0};
+    std::atomic<bool> stress_running{true};
+    const int target_operations = 50;
+    
+    auto stress_smoker = [&](Ingredient ingredient) {
+        while (stress_running && operations < target_operations) {
+            if (table->startSmoking(ingredient)) {
+                operations++;
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    auto stress_agent = [&]() {
+        while (stress_running && operations < target_operations) {
+            table->place(Ingredient::kPaper, Ingredient::kMatches);
+            table->waitForRoundEnd();
+        }
+    };
+    
+    std::thread smoker1(stress_smoker, Ingredient::kTobacco);
+    std::thread smoker2(stress_smoker, Ingredient::kPaper);
+    std::thread smoker3(stress_smoker, Ingredient::kMatches);
+    std::thread agent(stress_agent);
+    
+    // Ждем достижения целевого количества операций
+    auto start = std::chrono::steady_clock::now();
+    while (operations < target_operations) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() > 5) {
+            break; // timeout
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    
+    stress_running = false;
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    agent.join();
+    
+    EXPECT_GE(operations.load(), target_operations);
+}
+
+// Тест 9: MixedComponentCombinations
+TEST_F(SmokingTableTest, MixedComponentCombinations) {
+    std::array<std::atomic<int>, 3> correct_matches{0, 0, 0};
+    std::atomic<bool> testing{true};
+    
+    auto verifying_smoker = [&](Ingredient ingredient, int index) {
+        while (testing) {
+            if (table->startSmoking(ingredient)) {
+                correct_matches[index]++;
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(verifying_smoker, Ingredient::kTobacco, 0);
+    std::thread smoker2(verifying_smoker, Ingredient::kPaper, 1);
+    std::thread smoker3(verifying_smoker, Ingredient::kMatches, 2);
+    
+    // Тестируем все возможные комбинации
+    table->place(Ingredient::kPaper, Ingredient::kMatches);   // Должен взять курильщик с табаком
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kMatches); // Должен взять курильщик с бумагой
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kPaper);   // Должен взять курильщик со спичками
+    table->waitForRoundEnd();
+    
+    testing = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    // Каждый курильщик должен был сработать ровно 1 раз
+    EXPECT_EQ(correct_matches[0].load(), 1);
+    EXPECT_EQ(correct_matches[1].load(), 1);
+    EXPECT_EQ(correct_matches[2].load(), 1);
+}
+
+
+
+
+
+
+
+
+
