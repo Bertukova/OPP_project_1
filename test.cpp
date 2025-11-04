@@ -205,6 +205,34 @@ TEST_F(SmokingTableTest, NoDataRace) {
     
     EXPECT_GT(total_smokes.load(), 0);
 }
+// Тест 6: Быстрые последовательные раунды
+TEST_F(SmokingTableTest, FastSequentialRounds) {
+    std::atomic<int> round_count{0};
+    
+    auto fast_smoker_task = [&](Ingredient ingredient) {
+        while (table->startSmoking(ingredient)) {
+            round_count++;
+            table->finishSmoking();
+        }
+    };
+    
+    std::thread smoker1(fast_smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(fast_smoker_task, Ingredient::kPaper);
+    std::thread smoker3(fast_smoker_task, Ingredient::kMatches);
+    
+    // 10 быстрых раундов
+    for (int i = 0; i < 10; i++) {
+        table->place(Ingredient::kPaper, Ingredient::kMatches);
+        table->waitForRoundEnd();
+    }
+    
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_EQ(round_count.load(), 10);
+}
 
 
 
