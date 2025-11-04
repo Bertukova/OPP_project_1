@@ -5,7 +5,6 @@
 #include <string>
 #include <string_view>
 
-namespace {
 
 // индексы компонентов
 // перечисление, пользовательский тип Ingredient с конечным набором именованных констант
@@ -63,4 +62,4 @@ std::array<Ingredient, 2> ComponentsFor(Ingredient smoker) {
   return kComponentsForSmoker[IngredientIndex(smoker)];
 }
 
-} // namespace
+
