@@ -259,5 +259,28 @@ int main() {
     PrintMessage(io_mutex, "Посредник завершает работу.");
   };
 
+  std::array<std::thread, kSmokerCount> smokers{}; // массив потоков курильщиков
+  for (std::size_t i = 0; i < smokers.size(); ++i) { // запуск трех потоков курильщиков
+    smoked_count[i] = 0;
+    smokers[i] = std::thread(smoker_task, kAllSmokers[i], // конструируем временный объект потока и запускаем в нем лямбда-функцию
+                             std::ref(smoked_count[i]));
+  }
+
+  std::thread agent(agent_task, kTotalRounds);
+
+  agent.join(); // текущий поток (main) ждёт, пока поток agent (посредник) полностью завершится
+  for (auto& smoker : smokers) {
+    if (smoker.joinable()) { // владеет ли этот объект std::thread smoker действующим потоком?
+      smoker.join(); // ждем завершения конркетного курильщика, который курит 
+    }
+  }
+
+  PrintMessage(io_mutex, "Итоговая статистика:");
+  for (std::size_t i = 0; i < smoked_count.size(); ++i) {
+    std::string message = SmokerLabel(kAllSmokers[i]) + " выкурил " +
+                          std::to_string(smoked_count[i]) + " сигарет.";
+    PrintMessage(io_mutex, message);
+  }
+
   return 0;
 }
