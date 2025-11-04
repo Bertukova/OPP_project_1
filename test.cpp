@@ -115,6 +115,45 @@ TEST_F(SmokingTableTest, MultipleRounds) {
     
     EXPECT_GE(rounds_completed.load(), 5);
 }
+// Тест 4: Все три курильщика работают
+TEST_F(SmokingTableTest, AllSmokersParticipate) {
+    std::array<std::atomic<int>, 3> smoker_counts{0, 0, 0};
+    std::atomic<bool> running{true};
+    
+    auto smoker_task = [&](Ingredient ingredient, int index) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                smoker_counts[index]++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco, 0);
+    std::thread smoker2(smoker_task, Ingredient::kPaper, 1);
+    std::thread smoker3(smoker_task, Ingredient::kMatches, 2);
+    
+    // Разные комбинации компонентов
+    table->place(Ingredient::kPaper, Ingredient::kMatches);  // Для табака
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kMatches); // Для бумаги
+    table->waitForRoundEnd();
+    table->place(Ingredient::kTobacco, Ingredient::kPaper);   // Для спичек
+    table->waitForRoundEnd();
+    
+    running = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    // Все курильщики должны были покурить
+    EXPECT_GT(smoker_counts[0].load(), 0);
+    EXPECT_GT(smoker_counts[1].load(), 0);
+    EXPECT_GT(smoker_counts[2].load(), 0);
+}
+
 
 
 
