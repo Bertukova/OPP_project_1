@@ -1,0 +1,35 @@
+name: C++ Tests
+
+on:
+  push:
+    branches: [ tester, main, coder_anya ]
+  pull_request:
+    branches: [ main, coder_anya ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake libgtest-dev
+        
+    - name: Build Google Test (if needed)
+      run: |
+        cd /usr/src/gtest
+        sudo cmake CMakeLists.txt
+        sudo make
+        sudo cp lib/*.a /usr/lib
+        
+    - name: Compile tests
+      run: |
+        g++ -std=c++17 -I. test.cpp -lgtest -lgtest_main -lpthread -o tests
+        
+    - name: Run tests
+      run: |
+        ./tests
