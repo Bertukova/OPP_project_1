@@ -19,6 +19,69 @@ namespace {
 // три константы этого типа и их целочисленные значения
 enum class Ingredient { kTobacco = 0, kPaper = 1, kMatches = 2 }; // префикс k в именах обозначает константу
 
+// функция возвращает целочисленный индекс для значения строгого перечисления Ingredient (enum class)
+// явное преобразование к целочисленному типу
+// std::size_t - тип результата, беззнаковы целочисленный тип
+constexpr std::size_t IngredientIndex(Ingredient ingredient) {
+  return static_cast<std::size_t>(ingredient);
+}
+
+// ф-ия нужна для того, чтобы быстро получить имя по индексу
+// названия ингридиентов в им. падеже
+constexpr std::array<std::string_view, 3> kIngredientNames{
+    "табак", "бумага", "спички"};
+
+// то же самое, но в тв. падеже
+constexpr std::array<std::string_view, 3> kSmokerResources{
+    "табаком", "бумагой", "спичками"};
+
+// списко всех видов курильщиков
+constexpr std::array<Ingredient, 3> kAllSmokers{
+    Ingredient::kTobacco, Ingredient::kPaper, Ingredient::kMatches};
+
+// кол-во типов курильщиков
+constexpr std::size_t kSmokerCount = kAllSmokers.size();
+
+// пара компонентов, который кладет на стол посредник
+// другими словами, два компонента, которых не хватает для конкретного курильщика
+constexpr std::array<std::array<Ingredient, 2>, 3> kComponentsForSmoker{{
+    {Ingredient::kPaper, Ingredient::kMatches},
+    {Ingredient::kTobacco, Ingredient::kMatches},
+    {Ingredient::kTobacco, Ingredient::kPaper},
+}};
+
+// ф-ия возвращает строковое имя ингридинета по индексу (по значению перечисление Ingredient)
+std::string_view IngredientToString(Ingredient ingredient) {
+  return kIngredientNames[IngredientIndex(ingredient)];
+}
+
+// ф-ия возвращает тип курильщака в формате:
+// курильщик с ...
+std::string SmokerLabel(Ingredient ingredient) {
+  const auto index = IngredientIndex(ingredient);
+  return std::string{"курильщик с "} + std::string{kSmokerResources[index]};
+}
+
+// ф-ия возвращает недостающие компненты для конкретного курильщика
+// курильщику недостает *пары компонентов*
+std::array<Ingredient, 2> ComponentsFor(Ingredient smoker) {
+  return kComponentsForSmoker[IngredientIndex(smoker)];
+}
+
+// Мьютекс - "замок"
+// Когда один поток захватил мьютекс, все остальные, кто тоже хочет его захватить ждут, пока первый не отпустит
+// Код внутри «закрытого участка» выполняется строго по одному потоку за раз
+// Нужен для того, чтобы защитить общие данные от одновременной записи/чтения несколькими потоками
+// Иначе получается гонка данными и программа ведет себя непредсказуемо
+
+// ф-ия печатает каждое сообщение целиком и гарантирует, что без перемешивания логов от разных потоков
+// std::mutex& io_mutex — общий замок, один на всех, передаётся по ссылке (чтобы все пользовались одним и тем же замком)
+// std::lock_guard<std::mutex> lock(io_mutex); — «захватить замок» на время этой функции. При выходе из функции замок автоматически отпустится
+void PrintMessage(std::mutex& io_mutex, const std::string& message) {
+  std::lock_guard<std::mutex> lock(io_mutex);
+  std::cout << message << std::endl;
+}
+
 // 4 потока круглого стола, или не круглого
 // стол, за которым сидят 3 курилбщика и 1 посредник
 class SmokingTable {
@@ -103,6 +166,63 @@ class SmokingTable {
 }  // namespace
 
 int main() {
+  SmokingTable table; 
+  std::mutex io_mutex; // мьютекс для логов
+  constexpr int kTotalRounds = 12; // кол-во раундов, которые проведет посредник
+  const auto rolling_duration = std::chrono::milliseconds(150); // время на скручивание сигареты
+  const auto smoking_duration = std::chrono::milliseconds(300); // время на курение
+
+  // счетчик сигарет по каждому из курильщиков 
+  std::array<int, kSmokerCount> smoked_count{}; // {} - value-инициализация всех элементов, т.е. каждый элемент у нас 0, а не просто мусорное значение
   
+  // поток курильщика
+  // лямбда-функция 
+  // [&] - захват по ссылке всего, что будет использовано из внешней области
+  // Ingredient ingredient - что именно у этого курильщика своё, т.е. тип курильщика
+  // int& counter — ссылка на уже существующий счётчик этого курильщика
+  auto smoker_task = [&](Ingredient ingredient, int& counter) {  
+    const auto components = ComponentsFor(ingredient); // 2 недостающих компонента для рассматриваемого курильщика
+    while (true) { // поток курильщика
+      if (!table.startSmoking(ingredient)) {
+        break; // выход из цикла, если у нас курит другой курильщик
+      }
+
+      ++counter;
+
+      {
+        std::string message = SmokerLabel(ingredient) +
+                               " забирает " +
+                               std::string{IngredientToString(components[0])} +
+                               " и " +
+                               std::string{IngredientToString(components[1])} +
+                               ".";
+        PrintMessage(io_mutex, message);
+      }
+
+      std::this_thread::sleep_for(rolling_duration); // sleep_for() — спать относительное время
+
+      {
+        std::string message = SmokerLabel(ingredient) +
+                               " скрутил сигарету #" +
+                               std::to_string(counter) + ".";
+        PrintMessage(io_mutex, message);
+      }
+
+      std::this_thread::sleep_for(smoking_duration);
+
+      {
+        std::string message = SmokerLabel(ingredient) +
+                               " докурил сигарету #" +
+                               std::to_string(counter) + ".";
+        PrintMessage(io_mutex, message);
+      }
+      
+      table.finishSmoking();
+    }
+
+    PrintMessage(io_mutex, SmokerLabel(ingredient) + " завершает работу.");
+  };
+
+
   return 0;
 }
