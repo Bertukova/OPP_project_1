@@ -25,7 +25,6 @@ jobs:
 
       - name: Build GoogleTest
         run: |
-          # если googletest как submodule или каталог присутствует
           mkdir -p googletest/build
           cd googletest/build
           cmake ..
@@ -34,8 +33,3 @@ jobs:
       - name: Build and run tests
         run: |
           make test
-EOF
-      - name: Build and run tests
-        run: |
-          make test
-EOF
