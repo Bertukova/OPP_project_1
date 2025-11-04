@@ -82,4 +82,41 @@ TEST_F(SmokingTableTest, ProperShutdown) {
     
     EXPECT_EQ(completed_smokers.load(), 3);
 }
+// Тест 3: Многократные раунды
+TEST_F(SmokingTableTest, MultipleRounds) {
+    std::atomic<int> rounds_completed{0};
+    std::atomic<bool> running{true};
+    
+    auto smoker_task = [&](Ingredient ingredient) {
+        while (running) {
+            if (table->startSmoking(ingredient)) {
+                rounds_completed++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    std::thread smoker1(smoker_task, Ingredient::kTobacco);
+    std::thread smoker2(smoker_task, Ingredient::kPaper);
+    std::thread smoker3(smoker_task, Ingredient::kMatches);
+    
+    // Проводим 5 раундов
+    for (int i = 0; i < 5; i++) {
+        table->place(Ingredient::kPaper, Ingredient::kMatches);
+        table->waitForRoundEnd();
+    }
+    
+    running = false;
+    table->finish();
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    
+    EXPECT_GE(rounds_completed.load(), 5);
+}
+
+
+
+
 
