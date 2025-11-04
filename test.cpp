@@ -255,6 +255,57 @@ TEST_F(SmokingTableTest, WaitForRoundEndWorks) {
     table->finish();
 }
 
+// Тест 8: StressTest
+TEST_F(SmokingTableTest, StressTest) {
+    std::atomic<int> operations{0};
+    std::atomic<bool> stress_running{true};
+    const int target_operations = 50;
+    
+    auto stress_smoker = [&](Ingredient ingredient) {
+        while (stress_running && operations < target_operations) {
+            if (table->startSmoking(ingredient)) {
+                operations++;
+                table->finishSmoking();
+            }
+        }
+    };
+    
+    auto stress_agent = [&]() {
+        while (stress_running && operations < target_operations) {
+            table->place(Ingredient::kPaper, Ingredient::kMatches);
+            table->waitForRoundEnd();
+        }
+    };
+    
+    std::thread smoker1(stress_smoker, Ingredient::kTobacco);
+    std::thread smoker2(stress_smoker, Ingredient::kPaper);
+    std::thread smoker3(stress_smoker, Ingredient::kMatches);
+    std::thread agent(stress_agent);
+    
+    // Ждем достижения целевого количества операций
+    auto start = std::chrono::steady_clock::now();
+    while (operations < target_operations) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - start).count() > 5) {
+            break; // timeout
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    
+    stress_running = false;
+    table->finish();
+    
+    smoker1.join();
+    smoker2.join();
+    smoker3.join();
+    agent.join();
+    
+    EXPECT_GE(operations.load(), target_operations);
+}
+
+
+
+
 
 
 
