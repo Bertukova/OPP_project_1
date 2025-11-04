@@ -2,50 +2,52 @@
 #include <chrono>
 #include <random>
 #include <thread>
+#include <locale.h>
 
 #include "smoking_types.hpp"
 #include "smoking_io.hpp"
 #include "smoking_table.hpp"
 
 int main() {
+  setlocale(LC_ALL, "Russian"); // для корректного вывода русских сообщений в консоль на Windows
   SmokingTable table; 
-  std::mutex io_mutex; // РјСЊСЋС‚РµРєСЃ РґР»СЏ Р»РѕРіРѕРІ
-  constexpr int kTotalRounds = 12; // РєРѕР»-РІРѕ СЂР°СѓРЅРґРѕРІ, РєРѕС‚РѕСЂС‹Рµ РїСЂРѕРІРµРґРµС‚ РїРѕСЃСЂРµРґРЅРёРє
-  const auto rolling_duration = std::chrono::milliseconds(150); // РІСЂРµРјСЏ РЅР° СЃРєСЂСѓС‡РёРІР°РЅРёРµ СЃРёРіР°СЂРµС‚С‹
-  const auto smoking_duration = std::chrono::milliseconds(300); // РІСЂРµРјСЏ РЅР° РєСѓСЂРµРЅРёРµ
+  std::mutex io_mutex; // мьютекс для логов
+  constexpr int kTotalRounds = 12; // кол-во раундов, которые проведет посредник
+  const auto rolling_duration = std::chrono::milliseconds(150); // время на скручивание сигареты
+  const auto smoking_duration = std::chrono::milliseconds(300); // время на курение
 
-  // СЃС‡РµС‚С‡РёРє СЃРёРіР°СЂРµС‚ РїРѕ РєР°Р¶РґРѕРјСѓ РёР· РєСѓСЂРёР»СЊС‰РёРєРѕРІ 
-  std::array<int, kSmokerCount> smoked_count{}; // {} - value-РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РІСЃРµС… СЌР»РµРјРµРЅС‚РѕРІ, С‚.Рµ. РєР°Р¶РґС‹Р№ СЌР»РµРјРµРЅС‚ Сѓ РЅР°СЃ 0, Р° РЅРµ РїСЂРѕСЃС‚Рѕ РјСѓСЃРѕСЂРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ
+  // счетчик сигарет по каждому из курильщиков 
+  std::array<int, kSmokerCount> smoked_count{}; // {} - value-инициализация всех элементов, т.е. каждый элемент у нас 0, а не просто мусорное значение
   
-  // РїРѕС‚РѕРє РєСѓСЂРёР»СЊС‰РёРєР°
-  // Р»СЏРјР±РґР°-С„СѓРЅРєС†РёСЏ 
-  // [&] - Р·Р°С…РІР°С‚ РїРѕ СЃСЃС‹Р»РєРµ РІСЃРµРіРѕ, С‡С‚Рѕ Р±СѓРґРµС‚ РёСЃРїРѕР»СЊР·РѕРІР°РЅРѕ РёР· РІРЅРµС€РЅРµР№ РѕР±Р»Р°СЃС‚Рё
-  // Ingredient ingredient - С‡С‚Рѕ РёРјРµРЅРЅРѕ Сѓ СЌС‚РѕРіРѕ РєСѓСЂРёР»СЊС‰РёРєР° СЃРІРѕС‘, С‚.Рµ. С‚РёРї РєСѓСЂРёР»СЊС‰РёРєР°
-  // int& counter вЂ” СЃСЃС‹Р»РєР° РЅР° СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ СЃС‡С‘С‚С‡РёРє СЌС‚РѕРіРѕ РєСѓСЂРёР»СЊС‰РёРєР°
+  // поток курильщика
+  // лямбда-функция 
+  // [&] - захват по ссылке всего, что будет использовано из внешней области
+  // Ingredient ingredient - что именно у этого курильщика своё, т.е. тип курильщика
+  // int& counter — ссылка на уже существующий счётчик этого курильщика
   auto smoker_task = [&](Ingredient ingredient, int& counter) {  
-    const auto components = ComponentsFor(ingredient); // 2 РЅРµРґРѕСЃС‚Р°СЋС‰РёС… РєРѕРјРїРѕРЅРµРЅС‚Р° РґР»СЏ СЂР°СЃСЃРјР°С‚СЂРёРІР°РµРјРѕРіРѕ РєСѓСЂРёР»СЊС‰РёРєР°
-    while (true) { // РїРѕС‚РѕРє РєСѓСЂРёР»СЊС‰РёРєР°
+    const auto components = ComponentsFor(ingredient); // 2 недостающих компонента для рассматриваемого курильщика
+    while (true) { // поток курильщика
       if (!table.startSmoking(ingredient)) {
-        break; // РІС‹С…РѕРґ РёР· С†РёРєР»Р°, РµСЃР»Рё Сѓ РЅР°СЃ РєСѓСЂРёС‚ РґСЂСѓРіРѕР№ РєСѓСЂРёР»СЊС‰РёРє
+        break; // выход из цикла, если у нас курит другой курильщик
       }
 
       ++counter;
 
       {
         std::string message = SmokerLabel(ingredient) +
-                               " Р·Р°Р±РёСЂР°РµС‚ " +
+                               " забирает " +
                                std::string{IngredientToString(components[0])} +
-                               " Рё " +
+                               " и " +
                                std::string{IngredientToString(components[1])} +
                                ".";
         PrintMessage(io_mutex, message);
       }
 
-      std::this_thread::sleep_for(rolling_duration); // sleep_for() вЂ” СЃРїР°С‚СЊ РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅРѕРµ РІСЂРµРјСЏ
+      std::this_thread::sleep_for(rolling_duration); // sleep_for() — спать относительное время
 
       {
         std::string message = SmokerLabel(ingredient) +
-                               " СЃРєСЂСѓС‚РёР» СЃРёРіР°СЂРµС‚Сѓ #" +
+                               " скрутил сигарету #" +
                                std::to_string(counter) + ".";
         PrintMessage(io_mutex, message);
       }
@@ -54,7 +56,7 @@ int main() {
 
       {
         std::string message = SmokerLabel(ingredient) +
-                               " РґРѕРєСѓСЂРёР» СЃРёРіР°СЂРµС‚Сѓ #" +
+                               " докурил сигарету #" +
                                std::to_string(counter) + ".";
         PrintMessage(io_mutex, message);
       }
@@ -62,27 +64,27 @@ int main() {
       table.finishSmoking();
     }
 
-    PrintMessage(io_mutex, SmokerLabel(ingredient) + " Р·Р°РІРµСЂС€Р°РµС‚ СЂР°Р±РѕС‚Сѓ.");
+    PrintMessage(io_mutex, SmokerLabel(ingredient) + " завершает работу.");
   };
 
-  // РїРѕС‚РѕРє РїРѕСЃСЂРµРґРЅРёРєР°
+  // поток посредника
   auto agent_task = [&](int total_rounds) {
-    std::mt19937 rng(std::random_device{}()); // РіРµРЅРµСЂР°С‚РѕСЂ РїСЃРµРІРґРѕСЃР»СѓС‡Р°Р№РЅС‹С… С‡РёСЃРµР»
+    std::mt19937 rng(std::random_device{}()); // генератор псевдослучайных чисел
     std::uniform_int_distribution<int> dist(
-        0, static_cast<int>(kAllSmokers.size()) - 1); // СЂР°РІРЅРѕРјРµСЂРЅРѕРµ СЂР°СЃРїСЂРµРґРµР»РµРЅРёРµ РІ РґРёР°РїР°Р·РѕРЅРµ РѕС‚ [0; 2]
+        0, static_cast<int>(kAllSmokers.size()) - 1); // равномерное распределение в диапазоне от [0; 2]
 
     for (int round = 1; round <= total_rounds; ++round) {
       const Ingredient smoker_with_supply =
-          kAllSmokers[static_cast<std::size_t>(dist(rng))]; // СЃР»СѓС‡Р°Р№РЅРѕ РІС‹Р±РёСЂР°РµРј РєР°РєРѕРјСѓ РєСѓСЂРёР»СЊС‰РёРєСѓ Р±СѓРґРµС‚ РїРѕРґС…РѕРґРёС‚СЊ СЃР»РµРґ. РїР°СЂР° РєРѕРјРїРѕРЅРµРЅС‚РѕРІ
-      const auto components = ComponentsFor(smoker_with_supply); // С‚Р° СЃР°РјР°СЏ РїР°СЂР° РєРѕРјРїРѕРЅРµРЅС‚РѕРІ
+          kAllSmokers[static_cast<std::size_t>(dist(rng))]; // случайно выбираем какому курильщику будет подходить след. пара компонентов
+      const auto components = ComponentsFor(smoker_with_supply); // та самая пара компонентов
       
       {
         std::string message =
-            "РџРѕСЃСЂРµРґРЅРёРє РІС‹РєР»Р°РґС‹РІР°РµС‚ " +
-            std::string{IngredientToString(components[0])} + " Рё " +
-            std::string{IngredientToString(components[1])} + " РґР»СЏ " +
+            "Посредник выкладывает " +
+            std::string{IngredientToString(components[0])} + " и " +
+            std::string{IngredientToString(components[1])} + " для " +
             SmokerLabel(smoker_with_supply) +
-            ". Р Р°СѓРЅРґ #" + std::to_string(round) + ".";
+            ". Раунд #" + std::to_string(round) + ".";
         PrintMessage(io_mutex, message);
       }
 
@@ -91,36 +93,36 @@ int main() {
       table.waitForRoundEnd();
 
       {
-        std::string message = "Р Р°СѓРЅРґ #" + std::to_string(round) +
-                               " Р·Р°РІРµСЂС€РµРЅ.";
+        std::string message = "Раунд #" + std::to_string(round) +
+                               " завершен.";
         PrintMessage(io_mutex, message);
       }
     }
 
     table.finish();
-    PrintMessage(io_mutex, "РџРѕСЃСЂРµРґРЅРёРє Р·Р°РІРµСЂС€Р°РµС‚ СЂР°Р±РѕС‚Сѓ.");
+    PrintMessage(io_mutex, "Посредник завершает работу.");
   };
 
-  std::array<std::thread, kSmokerCount> smokers{}; // РјР°СЃСЃРёРІ РїРѕС‚РѕРєРѕРІ РєСѓСЂРёР»СЊС‰РёРєРѕРІ
-  for (std::size_t i = 0; i < smokers.size(); ++i) { // Р·Р°РїСѓСЃРє С‚СЂРµС… РїРѕС‚РѕРєРѕРІ РєСѓСЂРёР»СЊС‰РёРєРѕРІ
+  std::array<std::thread, kSmokerCount> smokers{}; // массив потоков курильщиков
+  for (std::size_t i = 0; i < smokers.size(); ++i) { // запуск трех потоков курильщиков
     smoked_count[i] = 0;
-    smokers[i] = std::thread(smoker_task, kAllSmokers[i], // РєРѕРЅСЃС‚СЂСѓРёСЂСѓРµРј РІСЂРµРјРµРЅРЅС‹Р№ РѕР±СЉРµРєС‚ РїРѕС‚РѕРєР° Рё Р·Р°РїСѓСЃРєР°РµРј РІ РЅРµРј Р»СЏРјР±РґР°-С„СѓРЅРєС†РёСЋ
+    smokers[i] = std::thread(smoker_task, kAllSmokers[i], // конструируем временный объект потока и запускаем в нем лямбда-функцию
                              std::ref(smoked_count[i]));
   }
 
   std::thread agent(agent_task, kTotalRounds);
 
-  agent.join(); // С‚РµРєСѓС‰РёР№ РїРѕС‚РѕРє (main) Р¶РґС‘С‚, РїРѕРєР° РїРѕС‚РѕРє agent (РїРѕСЃСЂРµРґРЅРёРє) РїРѕР»РЅРѕСЃС‚СЊСЋ Р·Р°РІРµСЂС€РёС‚СЃСЏ
+  agent.join(); // текущий поток (main) ждёт, пока поток agent (посредник) полностью завершится
   for (auto& smoker : smokers) {
-    if (smoker.joinable()) { // РІР»Р°РґРµРµС‚ Р»Рё СЌС‚РѕС‚ РѕР±СЉРµРєС‚ std::thread smoker РґРµР№СЃС‚РІСѓСЋС‰РёРј РїРѕС‚РѕРєРѕРј?
-      smoker.join(); // Р¶РґРµРј Р·Р°РІРµСЂС€РµРЅРёСЏ РєРѕРЅСЂРєРµС‚РЅРѕРіРѕ РєСѓСЂРёР»СЊС‰РёРєР°, РєРѕС‚РѕСЂС‹Р№ РєСѓСЂРёС‚ 
+    if (smoker.joinable()) { // владеет ли этот объект std::thread smoker действующим потоком?
+      smoker.join(); // ждем завершения конркетного курильщика, который курит 
     }
   }
 
-  PrintMessage(io_mutex, "РС‚РѕРіРѕРІР°СЏ СЃС‚Р°С‚РёСЃС‚РёРєР°:");
+  PrintMessage(io_mutex, "Итоговая статистика:");
   for (std::size_t i = 0; i < smoked_count.size(); ++i) {
-    std::string message = SmokerLabel(kAllSmokers[i]) + " РІС‹РєСѓСЂРёР» " +
-                          std::to_string(smoked_count[i]) + " СЃРёРіР°СЂРµС‚.";
+    std::string message = SmokerLabel(kAllSmokers[i]) + " выкурил " +
+                          std::to_string(smoked_count[i]) + " сигарет.";
     PrintMessage(io_mutex, message);
   }
 
